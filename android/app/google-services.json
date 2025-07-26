@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "648609595898",
+    "project_id": "visualbookmarking",
+    "storage_bucket": "visualbookmarking.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:648609595898:android:0ff668cc0a69b243aca443",
+        "android_client_info": {
+          "package_name": "com.example.visual_bookmarking_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQ_TmVJgsOCNQ5Zm8VaUvq63M50tMness"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
