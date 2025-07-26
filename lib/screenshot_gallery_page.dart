@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -6,6 +7,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
+import 'package:url_launcher/url_launcher.dart';
+import 'package:path_provider/path_provider.dart';
 
 class ScreenshotGalleryPage extends StatefulWidget {
   const ScreenshotGalleryPage({super.key});
@@ -29,61 +32,65 @@ class _ScreenshotGalleryPageState extends State<ScreenshotGalleryPage> {
     _listenForScreenshots();
   }
 
-  /// ✅ Ask for storage permissions
   Future<void> _askPermissions() async {
     await Permission.storage.request();
     await Permission.photos.request();
   }
 
-  /// ✅ Load saved screenshots from local storage
   Future<void> _loadScreenshots() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     List<String>? savedPaths = prefs.getStringList('screenshots');
+
     if (savedPaths != null) {
+      // ✅ Remove paths where file doesn't exist
+      savedPaths.removeWhere((path) => !File(path).existsSync());
       setState(() {
         _screenshotPaths = savedPaths;
       });
     }
   }
 
-  /// ✅ Save screenshot list locally
   Future<void> _saveScreenshots() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('screenshots', _screenshotPaths);
   }
 
-  /// ✅ Listen for new screenshots
   void _listenForScreenshots() {
-    _eventChannel.receiveBroadcastStream().listen((event) {
-      String filePath = event.toString();
-      print("📸 Screenshot detected: $filePath");
+    _eventChannel.receiveBroadcastStream().listen((event) async {
+      final Map<String, dynamic> data = jsonDecode(event);
+      String originalPath = data['path'];
+      String appName = data['app'];
 
-      if (!_screenshotPaths.contains(filePath)) {
+      print("📸 Screenshot detected: $originalPath");
+
+      final appDir = await getApplicationDocumentsDirectory();
+      final newPath = '${appDir.path}/${path.basename(originalPath)}';
+      await File(originalPath).copy(newPath);
+
+      if (!_screenshotPaths.contains(newPath)) {
         setState(() {
-          _screenshotPaths.add(filePath);
+          _screenshotPaths.add(newPath);
         });
-        _saveScreenshots(); // persist locally
-        _uploadScreenshot(filePath); // upload in background
+        _saveScreenshots();
+        _uploadScreenshot(newPath);
       }
     });
   }
 
-  /// ✅ Upload screenshot to Firebase
   Future<void> _uploadScreenshot(String filePath) async {
     setState(() => _isUploading = true);
 
     try {
       File file = File(filePath);
-      String fileName = path.basename(filePath);
+      if (!file.existsSync()) return;
 
-      // Upload to Firebase Storage
+      String fileName = path.basename(filePath);
       Reference storageRef = FirebaseStorage.instance.ref(
         'screenshots/$fileName',
       );
       await storageRef.putFile(file);
       String downloadURL = await storageRef.getDownloadURL();
 
-      // Save URL in Firestore
       await FirebaseFirestore.instance.collection('screenshots').add({
         'url': downloadURL,
         'timestamp': DateTime.now().toIso8601String(),
@@ -97,7 +104,6 @@ class _ScreenshotGalleryPageState extends State<ScreenshotGalleryPage> {
     setState(() => _isUploading = false);
   }
 
-  /// ✅ Open image in full-screen
   void _openFullScreen(String imagePath) {
     Navigator.push(
       context,
@@ -122,6 +128,9 @@ class _ScreenshotGalleryPageState extends State<ScreenshotGalleryPage> {
               itemCount: _screenshotPaths.length,
               itemBuilder: (context, index) {
                 String imagePath = _screenshotPaths[index];
+                if (!File(imagePath).existsSync()) {
+                  return const Icon(Icons.broken_image, color: Colors.grey);
+                }
                 return GestureDetector(
                   onTap: () => _openFullScreen(imagePath),
                   child: Image.file(File(imagePath), fit: BoxFit.cover),
@@ -138,10 +147,29 @@ class _ScreenshotGalleryPageState extends State<ScreenshotGalleryPage> {
   }
 }
 
-/// ✅ Full-screen Image Page
 class FullScreenImagePage extends StatelessWidget {
   final String imagePath;
   const FullScreenImagePage({super.key, required this.imagePath});
+
+  Future<void> _openApp() async {
+    if (imagePath.contains("Instagram")) {
+      final Uri url = Uri.parse('instagram://');
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      } else {
+        await launchUrl(Uri.parse('https://instagram.com'));
+      }
+    } else if (imagePath.contains("YouTube")) {
+      final Uri url = Uri.parse('youtube://');
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      } else {
+        await launchUrl(Uri.parse('https://youtube.com'));
+      }
+    } else {
+      print("No matching app detected.");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,7 +179,18 @@ class FullScreenImagePage extends StatelessWidget {
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: Center(child: Image.file(File(imagePath))),
+      body: Column(
+        children: [
+          Expanded(child: Center(child: Image.file(File(imagePath)))),
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: ElevatedButton(
+              onPressed: _openApp,
+              child: const Text("Open in Source App"),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.app.usage.UsageStatsManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -69,8 +70,27 @@ class MainActivity : FlutterActivity() {
         cursor?.use {
             if (it.moveToFirst()) {
                 val screenshotPath = it.getString(0)
-                eventSink?.success(screenshotPath)
+                val currentApp = getForegroundAppPackage()
+                val result = """{"path":"$screenshotPath","app":"$currentApp"}"""
+                eventSink?.success(result)
             }
         }
     }
+
+private fun getForegroundAppPackage(): String {
+    val usageStatsManager =
+        getSystemService(USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+    val endTime = System.currentTimeMillis()
+    val beginTime = endTime - 10000 // last 10 seconds
+
+    val usageStatsList = usageStatsManager.queryUsageStats(
+        android.app.usage.UsageStatsManager.INTERVAL_DAILY, beginTime, endTime
+    )
+
+    if (usageStatsList != null && usageStatsList.isNotEmpty()) {
+        val recentApp = usageStatsList.maxByOrNull { it.lastTimeUsed }
+        return recentApp?.packageName ?: ""
+    }
+    return ""
+}
 }
